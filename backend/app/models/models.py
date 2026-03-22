@@ -19,6 +19,13 @@ class SheetType(str, enum.Enum):
     SELL = "sell"
 
 
+class Currency(str, enum.Enum):
+    EUR = "EUR"
+    USD = "USD"
+    GBP = "GBP"
+    CZK = "CZK"
+
+
 class ImportBatch(Base):
     __tablename__ = "import_batches"
 
@@ -32,6 +39,7 @@ class ImportBatch(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     sheet_type: Mapped[SheetType] = mapped_column(SQLEnum(SheetType))
     stock_type: Mapped[StockType] = mapped_column(SQLEnum(StockType))
+    currency: Mapped[Currency] = mapped_column(SQLEnum(Currency))
 
     items: Mapped[list["ImportItem"]] = relationship(
         "ImportItem", back_populates="batch", cascade="all, delete-orphan"
