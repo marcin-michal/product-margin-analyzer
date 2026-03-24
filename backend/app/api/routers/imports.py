@@ -1,7 +1,7 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 
-from app.db.database import DbSession
+from app.db import DbSession
 from app.models import imports
 from app.schemas.core import PaginatedResponse
 from app.schemas.imports import (
@@ -19,7 +19,7 @@ from app.services.imports import (
 )
 from app.services.parser import process_import_confirmation, process_preview
 
-router = APIRouter(prefix="/api/batches", tags=["Batches"])
+router = APIRouter(prefix="/api/imports", tags=["Imports"])
 
 
 @router.get("", response_model=PaginatedResponse[ImportBatchResponse])

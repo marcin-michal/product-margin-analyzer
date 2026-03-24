@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import app.models.imports  # noqa: F401 — registers tables with Base.metadata
 from app.api.routers import imports
-from app.db.database import Base, engine
+from app.db import Base, engine
 
 
 @asynccontextmanager
