@@ -1,5 +1,4 @@
 from datetime import datetime
-from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
@@ -42,13 +41,13 @@ class ImportItemResponse(BaseModel):
     id: int
     ean: str
     product_name: str
-    price: Decimal
+    price: float
 
-    comparison_price: Decimal | None = None
+    comparison_price: float | None = None
     comparison_supplier: str | None = None
     comparison_batch_id: int | None = None
     comparison_currency: str | None = None
-    margin_percentage: Decimal | None = None
+    margin_percentage: float | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -65,3 +64,28 @@ class ImportBatchUpdate(BaseModel):
     sheet_type: SheetType | None = None
     stock_type: StockType | None = None
     currency: Currency | None = None
+
+
+class MatchSourceItem(BaseModel):
+    item_id: int
+    ean: str
+    product_name: str
+    price: float
+    currency: str
+    sheet_type: str
+
+
+class MatchItem(BaseModel):
+    item_id: int
+    product_name: str
+    price: float
+    batch_id: int
+    batch_filename: str
+    supplier_name: str
+    currency: str
+    margin_percentage: float | None = None
+
+
+class ItemMatchesResponse(BaseModel):
+    source: MatchSourceItem
+    matches: list[MatchItem]

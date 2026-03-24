@@ -6,6 +6,26 @@ from app.schemas.imports import ImportBatchUpdate, ImportItemParsed
 from app.services.currency import get_exchange_rates
 
 
+def _compute_margin(
+    source_price_base: float,
+    match_price_base: float,
+    is_sell: bool,
+) -> float | None:
+    """Margin formula used by both batch-level SQL and per-item Python paths.
+
+    Sell batches: (sell - buy) / sell * 100
+    Buy batches:  (sell - buy) / sell * 100  (from the match's perspective)
+    """
+    if is_sell:
+        if source_price_base == 0:
+            return None
+        return (source_price_base - match_price_base) / source_price_base * 100
+    else:
+        if match_price_base == 0:
+            return None
+        return (match_price_base - source_price_base) / match_price_base * 100
+
+
 def list_batches(
     db: Session, skip: int, limit: int
 ) -> tuple[list[imports.ImportBatch], int]:
@@ -23,6 +43,12 @@ def list_batches(
     )
 
     return list(batches), total or 0
+
+
+def get_batch(db: Session, batch_id: int) -> imports.ImportBatch | None:
+    return db.execute(
+        select(imports.ImportBatch).where(imports.ImportBatch.id == batch_id)
+    ).scalar_one_or_none()
 
 
 def get_batch_items(
@@ -76,6 +102,7 @@ def get_batch_items(
     )
     comp_price_base = best_comp_subq.c.comparison_price * comp_rate_case
 
+    # SQL mirror of _compute_margin() — keep in sync
     if batch.sheet_type == imports.SheetType.SELL:
         margin_expr = (
             (anchor_price_base - comp_price_base) / func.nullif(anchor_price_base, 0)
@@ -126,6 +153,95 @@ def get_batch_items(
     ]
 
     return results, total
+
+
+def get_item_matches(
+    db: Session, batch_id: int, item_id: int
+) -> tuple[dict, list[dict]] | None:
+    source_item = db.execute(
+        select(imports.ImportItem).where(
+            imports.ImportItem.id == item_id,
+            imports.ImportItem.batch_id == batch_id,
+        )
+    ).scalar_one_or_none()
+
+    if not source_item:
+        return None
+
+    source_batch = db.execute(
+        select(imports.ImportBatch).where(imports.ImportBatch.id == batch_id)
+    ).scalar_one_or_none()
+
+    if not source_batch:
+        return None
+
+    opposite_type = (
+        imports.SheetType.BUY
+        if source_batch.sheet_type == imports.SheetType.SELL
+        else imports.SheetType.SELL
+    )
+
+    sort_order = (
+        imports.ImportItem.price.asc()
+        if source_batch.sheet_type == imports.SheetType.SELL
+        else imports.ImportItem.price.desc()
+    )
+
+    raw_matches = db.execute(
+        select(
+            imports.ImportItem.id,
+            imports.ImportItem.product_name,
+            imports.ImportItem.price,
+            imports.ImportBatch.id.label("batch_id"),
+            imports.ImportBatch.filename.label("batch_filename"),
+            imports.ImportBatch.supplier_name,
+            imports.ImportBatch.currency,
+        )
+        .join(imports.ImportBatch)
+        .where(
+            imports.ImportItem.ean == source_item.ean,
+            imports.ImportBatch.sheet_type == opposite_type,
+        )
+        .order_by(sort_order)
+    ).all()
+
+    rates = get_exchange_rates()
+    source_rate = rates.get(source_batch.currency.value, 1.0)
+    source_price_base = float(source_item.price) * source_rate
+
+    is_sell = source_batch.sheet_type == imports.SheetType.SELL
+
+    matches = []
+    for row in raw_matches:
+        currency_val = row.currency.value if isinstance(row.currency, imports.Currency) else row.currency
+        match_rate = rates.get(currency_val, 1.0)
+        match_price_base = float(row.price) * match_rate
+
+        margin = _compute_margin(source_price_base, match_price_base, is_sell)
+
+        matches.append(
+            {
+                "item_id": row.id,
+                "product_name": row.product_name,
+                "price": float(row.price),
+                "batch_id": row.batch_id,
+                "batch_filename": row.batch_filename,
+                "supplier_name": row.supplier_name,
+                "currency": currency_val,
+                "margin_percentage": round(margin, 2) if margin is not None else None,
+            }
+        )
+
+    source = {
+        "item_id": source_item.id,
+        "ean": source_item.ean,
+        "product_name": source_item.product_name,
+        "price": float(source_item.price),
+        "currency": source_batch.currency.value,
+        "sheet_type": source_batch.sheet_type.value,
+    }
+
+    return source, matches
 
 
 def create_batch(

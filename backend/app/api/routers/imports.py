@@ -9,11 +9,14 @@ from app.schemas.imports import (
     ImportBatchResponse,
     ImportBatchUpdate,
     ImportItemResponse,
+    ItemMatchesResponse,
 )
 from app.services.imports import (
     create_batch,
     delete_batch,
+    get_batch,
     get_batch_items,
+    get_item_matches,
     list_batches,
     update_batch,
 )
@@ -27,6 +30,16 @@ def list_all_batches(db: DbSession, skip: int = 0, limit: int = 100):
     batches, total = list_batches(db, skip, limit)
 
     return {"data": batches, "total": total, "skip": skip, "limit": limit}
+
+
+@router.get("/{batch_id}", response_model=ImportBatchResponse)
+def get_batch_detail(batch_id: int, db: DbSession):
+    batch = get_batch(db, batch_id)
+
+    if not batch:
+        raise HTTPException(status_code=404, detail="Import batch not found")
+
+    return batch
 
 
 @router.get("/{batch_id}/items", response_model=PaginatedResponse[ImportItemResponse])
@@ -48,6 +61,19 @@ def get_batch_item_list(
             raise HTTPException(status_code=404, detail="Import batch not found")
 
     return {"data": items, "total": total, "skip": skip, "limit": limit}
+
+
+@router.get(
+    "/{batch_id}/items/{item_id}/matches", response_model=ItemMatchesResponse
+)
+def get_item_match_list(batch_id: int, item_id: int, db: DbSession):
+    result = get_item_matches(db, batch_id, item_id)
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Item not found in this batch")
+
+    source, matches = result
+    return {"source": source, "matches": matches}
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=ImportBatchCreateResponse)
