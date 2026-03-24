@@ -78,7 +78,7 @@ def clean_price(raw_val) -> float:
         cleaned = cleaned.replace(",", ".")
 
     try:
-        return float(cleaned)
+        return round(float(cleaned), 2)
     except ValueError:
         return 0.0
 
@@ -113,6 +113,11 @@ def process_preview(contents: bytes, filename: str) -> PreviewResponse:
 
     df = df.astype(object).where(pd.notna(df), None)
 
+    raw_grid = [
+        [round(cell, 2) if isinstance(cell, float) else cell for cell in row]
+        for row in df.values.tolist()
+    ]
+
     return PreviewResponse(
         filename=filename,
         metadata=PreviewMetadata(
@@ -122,7 +127,7 @@ def process_preview(contents: bytes, filename: str) -> PreviewResponse:
             if header_values
             else None,
         ),
-        raw_grid=df.values.tolist(),
+        raw_grid=raw_grid,
     )
 
 
