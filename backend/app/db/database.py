@@ -1,13 +1,12 @@
-import os
+from typing import Annotated
 
+from fastapi import Depends
 from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql+psycopg://admin:password@localhost:5432/margindb"
-)
+from app.core.settings import settings
 
-engine = create_engine(DATABASE_URL, echo=False)
+engine = create_engine(str(settings.database_url), echo=False)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -20,5 +19,11 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
+
+
+DbSession = Annotated[Session, Depends(get_db)]

@@ -1,7 +1,8 @@
 import enum
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -42,7 +43,7 @@ class ImportBatch(Base):
     currency: Mapped[Currency] = mapped_column(SQLEnum(Currency))
 
     items: Mapped[list["ImportItem"]] = relationship(
-        "ImportItem", back_populates="batch", cascade="all, delete-orphan"
+        back_populates="batch", cascade="all, delete-orphan"
     )
 
 
@@ -52,7 +53,7 @@ class ImportItem(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     ean: Mapped[str] = mapped_column(String, index=True)
     product_name: Mapped[str] = mapped_column(String)
-    price: Mapped[float] = mapped_column(Float)
+    price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
 
     batch_id: Mapped[int] = mapped_column(ForeignKey("import_batches.id"))
-    batch: Mapped["ImportBatch"] = relationship("ImportBatch", back_populates="items")
+    batch: Mapped["ImportBatch"] = relationship(back_populates="items")

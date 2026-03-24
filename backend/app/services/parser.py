@@ -3,7 +3,7 @@ import re
 
 import pandas as pd
 
-from app.schemas.imports import ImportItemDTO, PreviewMetadata, PreviewResponse
+from app.schemas.imports import ImportItemParsed, PreviewMetadata, PreviewResponse
 
 TARGET_KEYWORDS = [
     "ean",
@@ -32,8 +32,8 @@ def get_keywords_count(row: str) -> int:
     return count
 
 
-def get_column_mapping_suggestion(header_values: list) -> dict[str, str]:
-    mapping: dict[str, str] = {}
+def get_column_mapping_suggestion(header_values: list) -> dict[str, int | None]:
+    mapping: dict[str, int | None] = {}
 
     for mapped_col, keywords in MAPPING_KEYWORDS.items():
         found_col_key = None
@@ -48,19 +48,19 @@ def get_column_mapping_suggestion(header_values: list) -> dict[str, str]:
     return mapping
 
 
-def get_header_row_suggestion(df: pd.DataFrame) -> int:
-    header_row_index = -1
-    header_keywords_count = 0
+def get_header_row_suggestion(df: pd.DataFrame) -> int | None:
+    best_index: int | None = None
+    best_count = 0
 
     for index, row in df.iterrows():
         row_string = str(row.values)
         keywords_count = get_keywords_count(row_string)
 
-        if keywords_count > header_keywords_count:
-            header_keywords_count = keywords_count
-            header_row_index = index
+        if keywords_count > best_count:
+            best_count = keywords_count
+            best_index = index
 
-    return header_row_index
+    return best_index
 
 
 def clean_price(raw_val) -> float:
@@ -70,10 +70,10 @@ def clean_price(raw_val) -> float:
 
     if "," in cleaned and "." in cleaned:
         if cleaned.rfind(",") > cleaned.rfind("."):
-            cleaned = cleaned.replace(".", "")  # Remove thousands dot
-            cleaned = cleaned.replace(",", ".")  # Convert decimal comma to dot
+            cleaned = cleaned.replace(".", "")
+            cleaned = cleaned.replace(",", ".")
         else:
-            cleaned = cleaned.replace(",", "")  # Remove thousands comma
+            cleaned = cleaned.replace(",", "")
     elif "," in cleaned:
         cleaned = cleaned.replace(",", ".")
 
@@ -100,12 +100,16 @@ def read_and_clean_sheet(
     return df_clean
 
 
-def process_preview(contents: bytes, filename: str) -> dict:
+def process_preview(contents: bytes, filename: str) -> PreviewResponse:
     df = read_and_clean_sheet(contents, filename, limit=20)
 
     header_row_index = get_header_row_suggestion(df)
-    header_values = df.iloc[header_row_index].fillna("").astype(str).tolist()
-    suggested_mapping = get_column_mapping_suggestion(header_values)
+    header_values = None
+    suggested_mapping = None
+
+    if header_row_index is not None:
+        header_values = df.iloc[header_row_index].fillna("").astype(str).tolist()
+        suggested_mapping = get_column_mapping_suggestion(header_values)
 
     df = df.astype(object).where(pd.notna(df), None)
 
@@ -114,7 +118,9 @@ def process_preview(contents: bytes, filename: str) -> dict:
         metadata=PreviewMetadata(
             suggested_header_index=header_row_index,
             suggested_mapping=suggested_mapping,
-            header_columns={str(i): val for i, val in enumerate(header_values)},
+            header_columns={str(i): val for i, val in enumerate(header_values)}
+            if header_values
+            else None,
         ),
         raw_grid=df.values.tolist(),
     )
@@ -127,7 +133,7 @@ def process_import_confirmation(
     ean_col: int,
     product_col: int,
     price_col: int,
-) -> list[ImportItemDTO]:
+) -> list[ImportItemParsed]:
     df = read_and_clean_sheet(contents, filename)
 
     df_data = df.iloc[header_index + 1 :].copy()
@@ -136,7 +142,7 @@ def process_import_confirmation(
     items = []
     for _, row in df_data.iterrows():
         items.append(
-            ImportItemDTO(
+            ImportItemParsed(
                 ean=str(row[ean_col]).strip(),
                 product_name=str(row[product_col]).strip(),
                 price=clean_price(row[price_col]),

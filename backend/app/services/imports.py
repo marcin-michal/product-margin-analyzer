@@ -1,20 +1,20 @@
-from sqlalchemy import Case, func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from app.models import models
-from app.schemas.imports import ImportItemDTO
+from app.models import imports
+from app.schemas.imports import ImportItemParsed
 from app.services.currency import get_exchange_rates
 
 
 def get_paginated_batches(
     db: Session, skip: int, limit: int
-) -> tuple[list[models.ImportBatch], int]:
-    total = db.execute(select(func.count()).select_from(models.ImportBatch)).scalar()
+) -> tuple[list[imports.ImportBatch], int]:
+    total = db.execute(select(func.count()).select_from(imports.ImportBatch)).scalar()
 
     batches = (
         db.execute(
-            select(models.ImportBatch)
-            .order_by(models.ImportBatch.created_at.desc())
+            select(imports.ImportBatch)
+            .order_by(imports.ImportBatch.created_at.desc())
             .offset(skip)
             .limit(limit)
         )
@@ -29,7 +29,7 @@ def get_paginated_items_with_margins(
     db: Session, batch_id: int, skip: int, limit: int, sort_by_margin: bool
 ) -> tuple[list[dict], int]:
     batch = db.execute(
-        select(models.ImportBatch).where(models.ImportBatch.id == batch_id)
+        select(imports.ImportBatch).where(imports.ImportBatch.id == batch_id)
     ).scalar_one_or_none()
 
     if not batch:
@@ -37,46 +37,46 @@ def get_paginated_items_with_margins(
 
     total = db.execute(
         select(func.count())
-        .select_from(models.ImportItem)
-        .where(models.ImportItem.batch_id == batch_id)
+        .select_from(imports.ImportItem)
+        .where(imports.ImportItem.batch_id == batch_id)
     ).scalar()
 
-    if batch.sheet_type == models.SheetType.SELL:
-        opposite_type = models.SheetType.BUY
-        sort_order = models.ImportItem.price.asc()
+    if batch.sheet_type == imports.SheetType.SELL:
+        opposite_type = imports.SheetType.BUY
+        sort_order = imports.ImportItem.price.asc()
     else:
-        opposite_type = models.SheetType.SELL
-        sort_order = models.ImportItem.price.desc()
+        opposite_type = imports.SheetType.SELL
+        sort_order = imports.ImportItem.price.desc()
 
     best_comp_subq = (
         select(
-            models.ImportItem.ean,
-            models.ImportItem.price.label("comparison_price"),
-            models.ImportBatch.supplier_name.label("comparison_supplier"),
-            models.ImportBatch.id.label("comparison_batch_id"),
-            models.ImportBatch.currency.label("comparison_currency"),
+            imports.ImportItem.ean,
+            imports.ImportItem.price.label("comparison_price"),
+            imports.ImportBatch.supplier_name.label("comparison_supplier"),
+            imports.ImportBatch.id.label("comparison_batch_id"),
+            imports.ImportBatch.currency.label("comparison_currency"),
         )
-        .join(models.ImportBatch)
-        .where(models.ImportBatch.sheet_type == opposite_type)
-        .distinct(models.ImportItem.ean)
-        .order_by(models.ImportItem.ean, sort_order)
+        .join(imports.ImportBatch)
+        .where(imports.ImportBatch.sheet_type == opposite_type)
+        .distinct(imports.ImportItem.ean)
+        .order_by(imports.ImportItem.ean, sort_order)
         .subquery()
     )
 
     rates = get_exchange_rates()
     anchor_multiplier = rates.get(batch.currency.value, 1.0)
-    anchor_price_base = models.ImportItem.price * anchor_multiplier
+    anchor_price_base = imports.ImportItem.price * anchor_multiplier
 
-    comp_rate_case = Case(
-        {
-            best_comp_subq.c.comparison_currency == currency: rate
+    comp_rate_case = case(
+        *[
+            (best_comp_subq.c.comparison_currency == currency, rate)
             for currency, rate in rates.items()
-        },
+        ],
         else_=1.0,
     )
     comp_price_base = best_comp_subq.c.comparison_price * comp_rate_case
 
-    if batch.sheet_type == models.SheetType.SELL:
+    if batch.sheet_type == imports.SheetType.SELL:
         margin_expr = (
             (anchor_price_base - comp_price_base) / func.nullif(anchor_price_base, 0)
         ) * 100
@@ -87,24 +87,24 @@ def get_paginated_items_with_margins(
 
     query = (
         select(
-            models.ImportItem.id,
-            models.ImportItem.ean,
-            models.ImportItem.product_name,
-            models.ImportItem.price,
+            imports.ImportItem.id,
+            imports.ImportItem.ean,
+            imports.ImportItem.product_name,
+            imports.ImportItem.price,
             best_comp_subq.c.comparison_price,
             best_comp_subq.c.comparison_supplier,
             best_comp_subq.c.comparison_batch_id,
             best_comp_subq.c.comparison_currency,
             margin_expr.label("margin_percentage"),
         )
-        .outerjoin(best_comp_subq, models.ImportItem.ean == best_comp_subq.c.ean)
-        .where(models.ImportItem.batch_id == batch_id)
+        .outerjoin(best_comp_subq, imports.ImportItem.ean == best_comp_subq.c.ean)
+        .where(imports.ImportItem.batch_id == batch_id)
     )
 
     if sort_by_margin:
         query = query.order_by(margin_expr.desc().nulls_last())
     else:
-        query = query.order_by(models.ImportItem.id.asc())
+        query = query.order_by(imports.ImportItem.id.asc())
 
     raw_items = db.execute(query.offset(skip).limit(limit)).all()
 
@@ -132,13 +132,13 @@ def create_import_batch(
     db: Session,
     filename: str,
     supplier_name: str,
-    sheet_type: models.SheetType,
-    stock_type: models.StockType,
-    currency: models.Currency,
+    sheet_type: imports.SheetType,
+    stock_type: imports.StockType,
+    currency: imports.Currency,
     description: str | None,
-    parsed_items: list[ImportItemDTO],
+    parsed_items: list[ImportItemParsed],
 ) -> tuple[int, int]:
-    new_batch = models.ImportBatch(
+    new_batch = imports.ImportBatch(
         filename=filename,
         supplier_name=supplier_name,
         sheet_type=sheet_type,
@@ -150,7 +150,7 @@ def create_import_batch(
     db.flush()
 
     db_items = [
-        models.ImportItem(
+        imports.ImportItem(
             batch_id=new_batch.id,
             ean=item.ean,
             product_name=item.product_name,
