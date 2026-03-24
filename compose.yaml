@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:18.3-alpine
@@ -28,17 +26,20 @@ services:
     depends_on:
       - db
 
-    frontend:
-      build:
-        context: ./frontend
-      container_name: margin_frontend
-      ports:
-        - "5173:5173"
-      volumes:
-        - ./frontend:/app:z
-        - /app/node_modules
-      depends_on:
-        - backend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Containerfile
+    container_name: margin_frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app:z
+      - /app/node_modules
+    environment:
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:
