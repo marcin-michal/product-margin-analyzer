@@ -1,42 +1,43 @@
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 
 from app.db.database import DbSession
 from app.models import imports
 from app.schemas.core import PaginatedResponse
 from app.schemas.imports import (
+    ImportBatchCreateResponse,
     ImportBatchResponse,
-    ImportCreateResponse,
+    ImportBatchUpdate,
     ImportItemResponse,
 )
 from app.services.imports import (
-    create_import_batch,
-    get_paginated_batches,
-    get_paginated_items_with_margins,
+    create_batch,
+    delete_batch,
+    get_batch_items,
+    list_batches,
+    update_batch,
 )
 from app.services.parser import process_import_confirmation, process_preview
 
-router = APIRouter(prefix="/api/imports", tags=["Imports"])
+router = APIRouter(prefix="/api/batches", tags=["Batches"])
 
 
 @router.get("", response_model=PaginatedResponse[ImportBatchResponse])
-def get_imports(db: DbSession, skip: int = 0, limit: int = 100):
-    batches, total = get_paginated_batches(db, skip, limit)
+def list_all_batches(db: DbSession, skip: int = 0, limit: int = 100):
+    batches, total = list_batches(db, skip, limit)
 
     return {"data": batches, "total": total, "skip": skip, "limit": limit}
 
 
 @router.get("/{batch_id}/items", response_model=PaginatedResponse[ImportItemResponse])
-def get_import_items(
+def get_batch_item_list(
     batch_id: int,
     db: DbSession,
     skip: int = 0,
     limit: int = 100,
     sort_by_margin: bool = True,
 ):
-    items, total = get_paginated_items_with_margins(
-        db, batch_id, skip, limit, sort_by_margin
-    )
+    items, total = get_batch_items(db, batch_id, skip, limit, sort_by_margin)
 
     if not items and total == 0:
         batch_exists = db.execute(
@@ -49,8 +50,8 @@ def get_import_items(
     return {"data": items, "total": total, "skip": skip, "limit": limit}
 
 
-@router.post("", status_code=201, response_model=ImportCreateResponse)
-def create_import(
+@router.post("", status_code=status.HTTP_201_CREATED, response_model=ImportBatchCreateResponse)
+def create_new_batch(
     db: DbSession,
     file: UploadFile = File(...),
     supplier_name: str = Form(...),
@@ -85,7 +86,7 @@ def create_import(
             detail="No valid products found after filtering missing EANs.",
         )
 
-    batch_id, rows_inserted = create_import_batch(
+    batch_id, rows_inserted = create_batch(
         db,
         file.filename,
         supplier_name,
@@ -103,8 +104,30 @@ def create_import(
     }
 
 
+@router.patch("/{batch_id}", response_model=ImportBatchResponse)
+def update_existing_batch(
+    batch_id: int,
+    update_data: ImportBatchUpdate,
+    db: DbSession,
+):
+    batch = update_batch(db, batch_id, update_data)
+
+    if not batch:
+        raise HTTPException(status_code=404, detail="Import batch not found")
+
+    return batch
+
+
+@router.delete("/{batch_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_existing_batch(batch_id: int, db: DbSession):
+    success = delete_batch(db, batch_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Import batch not found")
+
+
 @router.post("/preview")
-def preview_spreadsheet(file: UploadFile = File(...)):
+def preview_file(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(
             status_code=400, detail="File must have a filename with a valid extension."

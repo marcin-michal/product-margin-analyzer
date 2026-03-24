@@ -2,11 +2,11 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.models import imports
-from app.schemas.imports import ImportItemParsed
+from app.schemas.imports import ImportBatchUpdate, ImportItemParsed
 from app.services.currency import get_exchange_rates
 
 
-def get_paginated_batches(
+def list_batches(
     db: Session, skip: int, limit: int
 ) -> tuple[list[imports.ImportBatch], int]:
     total = db.execute(select(func.count()).select_from(imports.ImportBatch)).scalar()
@@ -25,7 +25,7 @@ def get_paginated_batches(
     return list(batches), total or 0
 
 
-def get_paginated_items_with_margins(
+def get_batch_items(
     db: Session, batch_id: int, skip: int, limit: int, sort_by_margin: bool
 ) -> tuple[list[dict], int]:
     batch = db.execute(
@@ -128,7 +128,7 @@ def get_paginated_items_with_margins(
     return results, total
 
 
-def create_import_batch(
+def create_batch(
     db: Session,
     filename: str,
     supplier_name: str,
@@ -163,3 +163,36 @@ def create_import_batch(
     db.commit()
 
     return new_batch.id, len(db_items)
+
+
+def update_batch(
+    db: Session, batch_id: int, update_data: ImportBatchUpdate
+) -> imports.ImportBatch | None:
+    batch = db.execute(
+        select(imports.ImportBatch).where(imports.ImportBatch.id == batch_id)
+    ).scalar_one_or_none()
+
+    if not batch:
+        return None
+
+    for field, value in update_data.model_dump(exclude_unset=True).items():
+        setattr(batch, field, value)
+
+    db.commit()
+    db.refresh(batch)
+
+    return batch
+
+
+def delete_batch(db: Session, batch_id: int) -> bool:
+    batch = db.execute(
+        select(imports.ImportBatch).where(imports.ImportBatch.id == batch_id)
+    ).scalar_one_or_none()
+
+    if not batch:
+        return False
+
+    db.delete(batch)
+    db.commit()
+
+    return True

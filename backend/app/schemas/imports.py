@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from app.models.imports import Currency, SheetType, StockType
+
 
 class ImportItemParsed(BaseModel):
     ean: str
@@ -51,7 +53,15 @@ class ImportItemResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class ImportCreateResponse(BaseModel):
+class ImportBatchCreateResponse(BaseModel):
     message: str
     batch_id: int
     rows_inserted: int
+
+
+class ImportBatchUpdate(BaseModel):
+    supplier_name: str | None = None
+    description: str | None = None
+    sheet_type: SheetType | None = None
+    stock_type: StockType | None = None
+    currency: Currency | None = None
