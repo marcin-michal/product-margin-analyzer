@@ -32,7 +32,10 @@ export function MarginDetailModal({ batchId, itemId, onClose }: MarginDetailModa
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      onClick={onClose}
+    >
       <div
         className="relative mx-4 flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
@@ -46,7 +49,7 @@ export function MarginDetailModal({ batchId, itemId, onClose }: MarginDetailModa
           </div>
           <button
             onClick={onClose}
-            className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 cursor-pointer"
+            className="cursor-pointer rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
           >
             <X className="h-5 w-5" />
           </button>
@@ -126,9 +129,7 @@ export function MarginDetailModal({ batchId, itemId, onClose }: MarginDetailModa
                           </div>
                         </div>
 
-                        <p className="mt-2 text-xs text-gray-500">
-                          {match.product_name}
-                        </p>
+                        <p className="mt-2 text-xs text-gray-500">{match.product_name}</p>
                       </div>
                     ))}
                   </div>
