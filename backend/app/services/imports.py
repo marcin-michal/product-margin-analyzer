@@ -213,7 +213,11 @@ def get_item_matches(
 
     matches = []
     for row in raw_matches:
-        currency_val = row.currency.value if isinstance(row.currency, imports.Currency) else row.currency
+        currency_val = (
+            row.currency.value
+            if isinstance(row.currency, imports.Currency)
+            else row.currency
+        )
         match_rate = rates.get(currency_val, 1.0)
         match_price_base = float(row.price) * match_rate
 

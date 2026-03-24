@@ -63,9 +63,7 @@ def get_batch_item_list(
     return {"data": items, "total": total, "skip": skip, "limit": limit}
 
 
-@router.get(
-    "/{batch_id}/items/{item_id}/matches", response_model=ItemMatchesResponse
-)
+@router.get("/{batch_id}/items/{item_id}/matches", response_model=ItemMatchesResponse)
 def get_item_match_list(batch_id: int, item_id: int, db: DbSession):
     result = get_item_matches(db, batch_id, item_id)
 
@@ -76,7 +74,9 @@ def get_item_match_list(batch_id: int, item_id: int, db: DbSession):
     return {"source": source, "matches": matches}
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=ImportBatchCreateResponse)
+@router.post(
+    "", status_code=status.HTTP_201_CREATED, response_model=ImportBatchCreateResponse
+)
 def create_new_batch(
     db: DbSession,
     file: UploadFile = File(...),
