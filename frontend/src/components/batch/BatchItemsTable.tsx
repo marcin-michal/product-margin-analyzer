@@ -6,7 +6,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useBatchItems } from "../../hooks/useImports.ts";
-import type { ImportItem } from "../../types/imports.ts";
+import type { ImportItem, SheetType } from "../../types/imports.ts";
 import { Button } from "../ui/Button.tsx";
 import { MarginDetailModal } from "./MarginDetailModal.tsx";
 
@@ -64,20 +64,55 @@ const columns = [
   }),
 ];
 
-interface BatchItemsTableProps {
-  batchId: number;
-  highlightItemId?: number | null;
+function oppositeType(type: SheetType): SheetType {
+  return type === "sell" ? "buy" : "sell";
 }
 
-export function BatchItemsTable({ batchId, highlightItemId }: BatchItemsTableProps) {
+interface BatchItemsTableProps {
+  batchId: number;
+  sheetType: SheetType;
+  highlightItemId?: number | null;
+  initialCompareWith?: SheetType;
+}
+
+export function BatchItemsTable({
+  batchId,
+  sheetType,
+  highlightItemId,
+  initialCompareWith,
+}: BatchItemsTableProps) {
   const [page, setPage] = useState(0);
   const [sortByMargin, setSortByMargin] = useState(true);
+  const [compareWith, setCompareWith] = useState<SheetType>(
+    initialCompareWith ?? oppositeType(sheetType),
+  );
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [activeHighlightId, setActiveHighlightId] = useState(highlightItemId);
+  const [focusResolved, setFocusResolved] = useState(!highlightItemId);
   const highlightedRowRef = useRef<HTMLTableRowElement | null>(null);
   const hasScrolled = useRef(false);
   const skip = page * PAGE_SIZE;
 
-  const { data, isLoading, isError, error } = useBatchItems(batchId, skip, PAGE_SIZE, sortByMargin);
+  const isSameType = compareWith === sheetType;
+  const compareParam = isSameType ? compareWith : undefined;
+  const focusItemId = !focusResolved ? (activeHighlightId ?? undefined) : undefined;
+
+  const { data, isLoading, isError, error } = useBatchItems(
+    batchId,
+    skip,
+    PAGE_SIZE,
+    sortByMargin,
+    compareParam,
+    focusItemId,
+  );
+
+  useEffect(() => {
+    if (!focusResolved && data) {
+      const correctPage = Math.floor(data.skip / PAGE_SIZE);
+      if (correctPage !== page) setPage(correctPage);
+      setFocusResolved(true);
+    }
+  }, [data, focusResolved, page]);
 
   const tableData = data?.data ?? [];
   const total = data?.total ?? 0;
@@ -91,22 +126,22 @@ export function BatchItemsTable({ batchId, highlightItemId }: BatchItemsTablePro
 
   useEffect(() => {
     hasScrolled.current = false;
-  }, [highlightItemId]);
+  }, [activeHighlightId]);
 
   useEffect(() => {
-    if (highlightItemId && highlightedRowRef.current && !hasScrolled.current) {
+    if (focusResolved && activeHighlightId && highlightedRowRef.current && !hasScrolled.current) {
       hasScrolled.current = true;
       highlightedRowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  }, [highlightItemId, data]);
+  }, [activeHighlightId, data, focusResolved]);
 
   const setHighlightRef = useCallback(
     (itemId: number) => (el: HTMLTableRowElement | null) => {
-      if (itemId === highlightItemId) {
+      if (itemId === activeHighlightId) {
         highlightedRowRef.current = el;
       }
     },
-    [highlightItemId],
+    [activeHighlightId],
   );
 
   if (isLoading) {
@@ -127,15 +162,37 @@ export function BatchItemsTable({ batchId, highlightItemId }: BatchItemsTablePro
         <p className="text-sm text-gray-600">
           {total} item{total !== 1 ? "s" : ""}
         </p>
-        <button
-          onClick={() => {
-            setSortByMargin((v) => !v);
-            setPage(0);
-          }}
-          className="cursor-pointer text-xs font-medium text-indigo-600 hover:text-indigo-800"
-        >
-          Sort by: {sortByMargin ? "Margin" : "Default"}
-        </button>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-0.5">
+            {(["buy", "sell"] as const).map((type) => (
+              <button
+                key={type}
+                onClick={() => {
+                  setCompareWith(type);
+                  setPage(0);
+                  setActiveHighlightId(null);
+                  setFocusResolved(true);
+                }}
+                className={`cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                  compareWith === type
+                    ? "bg-indigo-100 text-indigo-700"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                vs {type === "buy" ? "Buy" : "Sell"}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => {
+              setSortByMargin((v) => !v);
+              setPage(0);
+            }}
+            className="cursor-pointer text-xs font-medium text-indigo-600 hover:text-indigo-800"
+          >
+            Sort by: {sortByMargin ? "Margin" : "Default"}
+          </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-gray-200">
@@ -156,7 +213,7 @@ export function BatchItemsTable({ batchId, highlightItemId }: BatchItemsTablePro
           </thead>
           <tbody className="divide-y divide-gray-100">
             {table.getRowModel().rows.map((row) => {
-              const isHighlighted = row.original.id === highlightItemId;
+              const isHighlighted = row.original.id === activeHighlightId;
 
               return (
                 <tr
@@ -209,6 +266,7 @@ export function BatchItemsTable({ batchId, highlightItemId }: BatchItemsTablePro
         <MarginDetailModal
           batchId={batchId}
           itemId={selectedItemId}
+          compareWith={compareParam}
           onClose={() => setSelectedItemId(null)}
         />
       )}

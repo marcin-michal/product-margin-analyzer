@@ -22,17 +22,24 @@ export function useBatch(batchId: number, enabled = true) {
   });
 }
 
-export function useBatchItems(batchId: number, skip: number, limit: number, sortByMargin: boolean) {
+export function useBatchItems(
+  batchId: number,
+  skip: number,
+  limit: number,
+  sortByMargin: boolean,
+  compareWith?: string,
+  focusItemId?: number,
+) {
   return useQuery({
-    queryKey: [BATCH_ITEMS_KEY, batchId, skip, limit, sortByMargin],
-    queryFn: () => api.getBatchItems(batchId, skip, limit, sortByMargin),
+    queryKey: [BATCH_ITEMS_KEY, batchId, skip, limit, sortByMargin, compareWith, focusItemId],
+    queryFn: () => api.getBatchItems(batchId, skip, limit, sortByMargin, compareWith, focusItemId),
   });
 }
 
-export function useItemMatches(batchId: number, itemId: number | null) {
+export function useItemMatches(batchId: number, itemId: number | null, compareWith?: string) {
   return useQuery({
-    queryKey: [ITEM_MATCHES_KEY, batchId, itemId],
-    queryFn: () => api.getItemMatches(batchId, itemId!),
+    queryKey: [ITEM_MATCHES_KEY, batchId, itemId, compareWith],
+    queryFn: () => api.getItemMatches(batchId, itemId!, compareWith),
     enabled: itemId !== null,
   });
 }

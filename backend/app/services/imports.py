@@ -10,20 +10,30 @@ def _compute_margin(
     source_price_base: float,
     match_price_base: float,
     is_sell: bool,
+    *,
+    same_type: bool = False,
 ) -> float | None:
     """Margin formula used by both batch-level SQL and per-item Python paths.
 
-    Sell batches: (sell - buy) / sell * 100
-    Buy batches:  (sell - buy) / sell * 100  (from the match's perspective)
+    Cross-type (BUY/SELL):
+        (sell - buy) / sell * 100
+    Same-type (SELL/SELL or BUY/BUY):
+        (match - source) / source * 100  (price difference %)
     """
+    if same_type:
+        if source_price_base == 0:
+            return None
+        return (match_price_base - source_price_base) / source_price_base * 100
+
     if is_sell:
         if source_price_base == 0:
             return None
         return (source_price_base - match_price_base) / source_price_base * 100
-    else:
-        if match_price_base == 0:
-            return None
-        return (match_price_base - source_price_base) / match_price_base * 100
+
+    if match_price_base == 0:
+        return None
+
+    return (match_price_base - source_price_base) / match_price_base * 100
 
 
 def list_batches(
@@ -52,14 +62,20 @@ def get_batch(db: Session, batch_id: int) -> imports.ImportBatch | None:
 
 
 def get_batch_items(
-    db: Session, batch_id: int, skip: int, limit: int, sort_by_margin: bool
-) -> tuple[list[dict], int]:
+    db: Session,
+    batch_id: int,
+    skip: int,
+    limit: int,
+    sort_by_margin: bool,
+    compare_with: str | None = None,
+    focus_item_id: int | None = None,
+) -> tuple[list[dict], int, int]:
     batch = db.execute(
         select(imports.ImportBatch).where(imports.ImportBatch.id == batch_id)
     ).scalar_one_or_none()
 
     if not batch:
-        return [], 0
+        return [], 0, skip
 
     total = db.execute(
         select(func.count())
@@ -67,12 +83,26 @@ def get_batch_items(
         .where(imports.ImportItem.batch_id == batch_id)
     ).scalar()
 
-    if batch.sheet_type == imports.SheetType.SELL:
-        opposite_type = imports.SheetType.BUY
+    same_type = compare_with == batch.sheet_type.value
+
+    if same_type:
+        target_type = batch.sheet_type
+        # SELL/SELL: highest competitor first; BUY/BUY: cheapest alternative first
+        sort_order = (
+            imports.ImportItem.price.desc()
+            if batch.sheet_type == imports.SheetType.SELL
+            else imports.ImportItem.price.asc()
+        )
+    elif batch.sheet_type == imports.SheetType.SELL:
+        target_type = imports.SheetType.BUY
         sort_order = imports.ImportItem.price.asc()
     else:
-        opposite_type = imports.SheetType.SELL
+        target_type = imports.SheetType.SELL
         sort_order = imports.ImportItem.price.desc()
+
+    comp_filter = imports.ImportBatch.sheet_type == target_type
+    if same_type:
+        comp_filter = comp_filter & (imports.ImportBatch.id != batch_id)
 
     best_comp_subq = (
         select(
@@ -83,7 +113,7 @@ def get_batch_items(
             imports.ImportBatch.currency.label("comparison_currency"),
         )
         .join(imports.ImportBatch)
-        .where(imports.ImportBatch.sheet_type == opposite_type)
+        .where(comp_filter)
         .distinct(imports.ImportItem.ean)
         .order_by(imports.ImportItem.ean, sort_order)
         .subquery()
@@ -103,7 +133,11 @@ def get_batch_items(
     comp_price_base = best_comp_subq.c.comparison_price * comp_rate_case
 
     # SQL mirror of _compute_margin() — keep in sync
-    if batch.sheet_type == imports.SheetType.SELL:
+    if same_type:
+        margin_expr = (
+            (comp_price_base - anchor_price_base) / func.nullif(anchor_price_base, 0)
+        ) * 100
+    elif batch.sheet_type == imports.SheetType.SELL:
         margin_expr = (
             (anchor_price_base - comp_price_base) / func.nullif(anchor_price_base, 0)
         ) * 100
@@ -133,6 +167,24 @@ def get_batch_items(
     else:
         query = query.order_by(imports.ImportItem.id.asc())
 
+    if focus_item_id is not None:
+        id_query = (
+            select(imports.ImportItem.id)
+            .outerjoin(best_comp_subq, imports.ImportItem.ean == best_comp_subq.c.ean)
+            .where(imports.ImportItem.batch_id == batch_id)
+        )
+        if sort_by_margin:
+            id_query = id_query.order_by(margin_expr.desc().nulls_last())
+        else:
+            id_query = id_query.order_by(imports.ImportItem.id.asc())
+
+        all_ids = [row.id for row in db.execute(id_query).all()]
+        try:
+            position = all_ids.index(focus_item_id)
+            skip = (position // limit) * limit
+        except ValueError:
+            pass
+
     raw_items = db.execute(query.offset(skip).limit(limit)).all()
 
     results = [
@@ -152,11 +204,14 @@ def get_batch_items(
         for row in raw_items
     ]
 
-    return results, total
+    return results, total, skip
 
 
 def get_item_matches(
-    db: Session, batch_id: int, item_id: int
+    db: Session,
+    batch_id: int,
+    item_id: int,
+    compare_with: str | None = None,
 ) -> tuple[dict, list[dict]] | None:
     source_item = db.execute(
         select(imports.ImportItem).where(
@@ -175,17 +230,28 @@ def get_item_matches(
     if not source_batch:
         return None
 
-    opposite_type = (
-        imports.SheetType.BUY
-        if source_batch.sheet_type == imports.SheetType.SELL
-        else imports.SheetType.SELL
-    )
+    same_type = compare_with == source_batch.sheet_type.value
 
-    sort_order = (
-        imports.ImportItem.price.asc()
-        if source_batch.sheet_type == imports.SheetType.SELL
-        else imports.ImportItem.price.desc()
-    )
+    if same_type:
+        target_type = source_batch.sheet_type
+        sort_order = (
+            imports.ImportItem.price.desc()
+            if source_batch.sheet_type == imports.SheetType.SELL
+            else imports.ImportItem.price.asc()
+        )
+    elif source_batch.sheet_type == imports.SheetType.SELL:
+        target_type = imports.SheetType.BUY
+        sort_order = imports.ImportItem.price.asc()
+    else:
+        target_type = imports.SheetType.SELL
+        sort_order = imports.ImportItem.price.desc()
+
+    match_filter = [
+        imports.ImportItem.ean == source_item.ean,
+        imports.ImportBatch.sheet_type == target_type,
+    ]
+    if same_type:
+        match_filter.append(imports.ImportBatch.id != batch_id)
 
     raw_matches = db.execute(
         select(
@@ -198,10 +264,7 @@ def get_item_matches(
             imports.ImportBatch.currency,
         )
         .join(imports.ImportBatch)
-        .where(
-            imports.ImportItem.ean == source_item.ean,
-            imports.ImportBatch.sheet_type == opposite_type,
-        )
+        .where(*match_filter)
         .order_by(sort_order)
     ).all()
 
@@ -221,7 +284,9 @@ def get_item_matches(
         match_rate = rates.get(currency_val, 1.0)
         match_price_base = float(row.price) * match_rate
 
-        margin = _compute_margin(source_price_base, match_price_base, is_sell)
+        margin = _compute_margin(
+            source_price_base, match_price_base, is_sell, same_type=same_type
+        )
 
         matches.append(
             {

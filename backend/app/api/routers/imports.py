@@ -49,8 +49,12 @@ def get_batch_item_list(
     skip: int = 0,
     limit: int = 100,
     sort_by_margin: bool = True,
+    compare_with: str | None = None,
+    focus_item_id: int | None = None,
 ):
-    items, total = get_batch_items(db, batch_id, skip, limit, sort_by_margin)
+    items, total, adjusted_skip = get_batch_items(
+        db, batch_id, skip, limit, sort_by_margin, compare_with, focus_item_id
+    )
 
     if not items and total == 0:
         batch_exists = db.execute(
@@ -60,12 +64,14 @@ def get_batch_item_list(
         if not batch_exists:
             raise HTTPException(status_code=404, detail="Import batch not found")
 
-    return {"data": items, "total": total, "skip": skip, "limit": limit}
+    return {"data": items, "total": total, "skip": adjusted_skip, "limit": limit}
 
 
 @router.get("/{batch_id}/items/{item_id}/matches", response_model=ItemMatchesResponse)
-def get_item_match_list(batch_id: int, item_id: int, db: DbSession):
-    result = get_item_matches(db, batch_id, item_id)
+def get_item_match_list(
+    batch_id: int, item_id: int, db: DbSession, compare_with: str | None = None
+):
+    result = get_item_matches(db, batch_id, item_id, compare_with)
 
     if not result:
         raise HTTPException(status_code=404, detail="Item not found in this batch")

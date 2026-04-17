@@ -10,7 +10,7 @@ import { SheetTypeBadge, StockTypeBadge } from "../components/batch/batchBadges"
 import { SHEET_TYPE_OPTIONS, STOCK_TYPE_OPTIONS, CURRENCY_OPTIONS } from "../constants/options.ts";
 import { Badge } from "../components/ui/Badge.tsx";
 import { useBatch, useDeleteBatch, useUpdateBatch } from "../hooks/useImports.ts";
-import type { BatchUpdatePayload } from "../types/imports.ts";
+import type { BatchUpdatePayload, SheetType } from "../types/imports.ts";
 
 export function BatchDetailPage() {
   const { batchId } = useParams<{ batchId: string }>();
@@ -20,6 +20,7 @@ export function BatchDetailPage() {
   const highlightItemId = searchParams.get("highlight")
     ? Number(searchParams.get("highlight"))
     : null;
+  const initialCompareWith = (searchParams.get("compare_with") as SheetType) ?? undefined;
 
   const validId = Number.isFinite(id);
   const { data: batch, isLoading, isError } = useBatch(id, validId);
@@ -196,7 +197,12 @@ export function BatchDetailPage() {
         )}
       </div>
 
-      <BatchItemsTable batchId={id} highlightItemId={highlightItemId} />
+      <BatchItemsTable
+        batchId={id}
+        sheetType={batch.sheet_type}
+        highlightItemId={highlightItemId}
+        initialCompareWith={initialCompareWith}
+      />
 
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">

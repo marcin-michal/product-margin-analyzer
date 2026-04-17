@@ -18,16 +18,31 @@ export function getBatch(batchId: number) {
   return get<ImportBatch>(`/imports/${batchId}`);
 }
 
-export function getBatchItems(batchId: number, skip: number, limit: number, sortByMargin: boolean) {
-  return get<PaginatedResponse<ImportItem>>(`/imports/${batchId}/items`, {
+export function getBatchItems(
+  batchId: number,
+  skip: number,
+  limit: number,
+  sortByMargin: boolean,
+  compareWith?: string,
+  focusItemId?: number,
+) {
+  const params: Record<string, string | number | boolean> = {
     skip,
     limit,
     sort_by_margin: sortByMargin,
-  });
+  };
+  if (compareWith) params.compare_with = compareWith;
+  if (focusItemId !== undefined) params.focus_item_id = focusItemId;
+  return get<PaginatedResponse<ImportItem>>(`/imports/${batchId}/items`, params);
 }
 
-export function getItemMatches(batchId: number, itemId: number) {
-  return get<ItemMatchesResponse>(`/imports/${batchId}/items/${itemId}/matches`);
+export function getItemMatches(batchId: number, itemId: number, compareWith?: string) {
+  const params: Record<string, string | number | boolean> = {};
+  if (compareWith) {
+    params.compare_with = compareWith;
+  }
+
+  return get<ItemMatchesResponse>(`/imports/${batchId}/items/${itemId}/matches`, params);
 }
 
 export function previewFile(file: File) {

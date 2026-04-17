@@ -1,4 +1,3 @@
-import { useNavigate } from "react-router-dom";
 import { ArrowRight, X } from "lucide-react";
 import { Badge } from "../ui/Badge.tsx";
 import { useItemMatches } from "../../hooks/useImports.ts";
@@ -6,6 +5,7 @@ import { useItemMatches } from "../../hooks/useImports.ts";
 interface MarginDetailModalProps {
   batchId: number;
   itemId: number;
+  compareWith?: string;
   onClose: () => void;
 }
 
@@ -22,13 +22,18 @@ function MarginBadge({ value }: { value: number | null }) {
   return <Badge variant="red">{value.toFixed(2)}%</Badge>;
 }
 
-export function MarginDetailModal({ batchId, itemId, onClose }: MarginDetailModalProps) {
-  const navigate = useNavigate();
-  const { data, isLoading, isError } = useItemMatches(batchId, itemId);
+export function MarginDetailModal({
+  batchId,
+  itemId,
+  compareWith,
+  onClose,
+}: MarginDetailModalProps) {
+  const { data, isLoading, isError } = useItemMatches(batchId, itemId, compareWith);
 
   const goToMatch = (matchBatchId: number, matchItemId: number) => {
-    onClose();
-    navigate(`/batches/${matchBatchId}?highlight=${matchItemId}`);
+    const params = new URLSearchParams({ highlight: String(matchItemId) });
+    if (compareWith) params.set("compare_with", compareWith);
+    window.open(`/batches/${matchBatchId}?${params.toString()}`, "_blank");
   };
 
   return (
@@ -88,7 +93,7 @@ export function MarginDetailModal({ batchId, itemId, onClose }: MarginDetailModa
                   <p className="text-xs font-medium tracking-wide text-gray-500 uppercase">
                     {data.matches.length === 0
                       ? "No matches found"
-                      : `${data.matches.length} match${data.matches.length !== 1 ? "es" : ""} from ${data.source.sheet_type === "sell" ? "buy" : "sell"} batches`}
+                      : `${data.matches.length} match${data.matches.length !== 1 ? "es" : ""} from ${compareWith ?? (data.source.sheet_type === "sell" ? "buy" : "sell")} batches`}
                   </p>
                 </div>
 
